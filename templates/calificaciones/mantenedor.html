@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mantenedor Nuam - Calificaciones tributarias</title>
+    <title>Nuam - Mantenedor de Calificaciones Tributarias</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
@@ -14,16 +14,22 @@
 </head>
 <body class="bg-light">
 
-<nav class="navbar navbar-dark bg-primary px-3 shadow-sm" style="background-color: #1a365d !important;">
-    <span class="navbar-brand mb-0 h1 fw-bold"><i class="bi bi-graph-up-arrow me-2"></i>NUAM - Mercado Bursátil Integrado</span>
-    <span class="text-light small">Sistema Mantenedor de Calificaciones Tributarias</span>
+<nav class="navbar navbar-dark px-3 shadow-sm" style="background-color: #1a365d !important;">
+    <span class="navbar-brand mb-0 h1 fw-bold"><i class="bi bi-graph-up-arrow me-2"></i>NUAM Mercado Bursátil Integrado</span>
+    <div class="d-flex align-items-center gap-3">
+        <span class="text-light small"><i class="bi bi-person-circle me-1"></i>{{ request.user.username }}</span>
+        <form method="POST" action="{% url 'logout' %}" class="m-0">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-outline-light btn-sm py-0 px-2">Salir</button>
+        </form>
+    </div>
 </nav>
 
 <div class="container-fluid py-4 px-4">
 
     {% if messages %}
         {% for message in messages %}
-            <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+            <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %} alert-dismissible fade show" role="alert">
                 {{ message }}
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
@@ -56,7 +62,7 @@
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small fw-semibold">Ejercicio Comercial</label>
-                    <input type="number" name="ejercicio" class="form-control form-control-sm" placeholder="Ej: 2023" value="{{ ejercicio_sel }}">
+                    <input type="number" name="ejercicio" class="form-control form-control-sm" placeholder="Ej: 2024" value="{{ ejercicio_sel }}">
                 </div>
                 <div class="col-md-4 d-flex gap-2">
                     <button type="submit" class="btn btn-primary btn-sm px-3"><i class="bi bi-search me-1"></i> Buscar</button>
@@ -70,12 +76,17 @@
         <div class="card-header bg-white d-flex justify-content-between align-items-center py-2">
             <span class="fw-bold text-dark">Registros de Calificaciones</span>
             <div class="d-flex gap-2">
-                <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#modalIngreso">
+                <button class="btn btn-outline-dark btn-sm" data-bs-toggle="modal" data-bs-target="#modalAuditoria">
+                    <i class="bi bi-clock-history me-1"></i> Auditoría JSON
+                </button>
+                {% if es_editor %}
+                <button class="btn btn-success btn-sm" onclick="abrirModalNuevo()" data-bs-toggle="modal" data-bs-target="#modalIngreso">
                     <i class="bi bi-plus-circle me-1"></i> Ingresar Calificación
                 </button>
                 <button class="btn btn-info btn-sm text-white" data-bs-toggle="modal" data-bs-target="#modalCSV">
                     <i class="bi bi-file-earmark-spreadsheet me-1"></i> Carga Masiva CSV
                 </button>
+                {% endif %}
             </div>
         </div>
         <div class="card-body p-0">
@@ -95,7 +106,7 @@
                             <th>Factor 10</th>
                             <th>Factor 11</th>
                             <th>Suma 8-19</th>
-                            <th>Acciones</th>
+                            {% if es_editor %}<th>Acciones</th>{% endif %}
                         </tr>
                     </thead>
                     <tbody>
@@ -117,11 +128,18 @@
                             <td class="factor-col">{{ c.factores.factor_10 }}</td>
                             <td class="factor-col">{{ c.factores.factor_11 }}</td>
                             <td class="factor-col fw-bold text-success">{{ c.factores.suma_factores_principales }}</td>
-                            <td>
-                                <a href="{% url 'eliminar_calificacion' c.id %}" class="btn btn-outline-danger btn-sm py-0 px-2" onclick="return confirm('¿Confirma eliminar este registro local?');">
+                            {% if es_editor %}
+                            <td class="text-nowrap">
+                                <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2"
+                                    onclick="abrirModalEditar('{{ c.id }}', '{{ c.ejercicio }}', '{{ c.mercado }}', '{{ c.instrumento }}', '{{ c.secuencia_evento }}', '{{ c.fecha_pago|date:'Y-m-d' }}', '{{ c.tipo_sociedad }}', '{{ c.descripcion|escapejs }}')"
+                                    data-bs-toggle="modal" data-bs-target="#modalIngreso">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                <a href="{% url 'eliminar_calificacion' c.id %}" class="btn btn-outline-danger btn-sm py-0 px-2" onclick="return confirm('¿Confirma eliminar este registro?');">
                                     <i class="bi bi-trash"></i>
                                 </a>
                             </td>
+                            {% endif %}
                         </tr>
                         {% empty %}
                         <tr>
@@ -141,8 +159,9 @@
     <div class="modal-dialog modal-lg">
         <form method="POST" action="{% url 'guardar_calificacion' %}" class="modal-content">
             {% csrf_token %}
-            <div class="modal-header bg-primary text-white" style="background-color: #1a365d !important;">
-                <h5 class="modal-title fs-6">Nueva Calificación Tributaria (Ingreso y Cálculo)</h5>
+            <input type="hidden" name="calificacion_id" id="input_calificacion_id">
+            <div class="modal-header text-white" style="background-color: #1a365d !important;">
+                <h5 class="modal-title fs-6" id="tituloModalIngreso">Nueva Calificación Tributaria (Ingreso y Cálculo)</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
@@ -150,11 +169,11 @@
                 <div class="row g-2 mb-3">
                     <div class="col-md-3">
                         <label class="form-label small">Ejercicio</label>
-                        <input type="number" name="ejercicio" class="form-control form-control-sm" required value="2024">
+                        <input type="number" name="ejercicio" id="input_ejercicio" class="form-control form-control-sm" required value="2024">
                     </div>
                     <div class="col-md-3">
                         <label class="form-label small">Mercado</label>
-                        <select name="mercado" class="form-select form-select-sm" required>
+                        <select name="mercado" id="input_mercado" class="form-select form-select-sm" required>
                             <option value="ACN">Acciones (ACN)</option>
                             <option value="CFI">CFI</option>
                             <option value="FM">Fondos Mutuos</option>
@@ -162,26 +181,26 @@
                     </div>
                     <div class="col-md-6">
                         <label class="form-label small">Instrumento</label>
-                        <input type="text" name="instrumento" class="form-control form-control-sm" required placeholder="Ej: Copec">
+                        <input type="text" name="instrumento" id="input_instrumento" class="form-control form-control-sm" required placeholder="Ej: COPEC">
                     </div>
                     <div class="col-md-4">
                         <label class="form-label small">Secuencia Evento (&gt; 10.000)</label>
-                        <input type="number" name="secuencia_evento" class="form-control form-control-sm" required value="123123">
+                        <input type="number" name="secuencia_evento" id="input_secuencia" class="form-control form-control-sm" required value="123123">
                     </div>
                     <div class="col-md-4">
                         <label class="form-label small">Fecha Pago</label>
-                        <input type="date" name="fecha_pago" class="form-control form-control-sm" required>
+                        <input type="date" name="fecha_pago" id="input_fecha" class="form-control form-control-sm" required>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label small">Tipo Sociedad</label>
-                        <select name="tipo_sociedad" class="form-select form-select-sm">
+                        <select name="tipo_sociedad" id="input_sociedad" class="form-select form-select-sm">
                             <option value="A">Abierta</option>
                             <option value="C">Cerrada</option>
                         </select>
                     </div>
                     <div class="col-12">
                         <label class="form-label small">Descripción</label>
-                        <input type="text" name="descripcion" class="form-control form-control-sm" required placeholder="Dividendo provisorio serie A">
+                        <input type="text" name="descripcion" id="input_descripcion" class="form-control form-control-sm" required placeholder="Dividendo provisorio serie A">
                     </div>
                 </div>
 
@@ -231,7 +250,7 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <p class="small text-muted">Seleccione el archivo plano de calificaciones. El archivo debe contener los encabezados: <code>ejercicio,mercado,instrumento,fecha,secuencia,factor_08,factor_09...</code></p>
+                <p class="small text-muted">Seleccione el archivo plano de calificaciones. Encabezados requeridos: <code>ejercicio,mercado,instrumento,fecha,secuencia,factor_08,factor_09...</code></p>
                 <div class="mb-3">
                     <label class="form-label small fw-semibold">Archivo CSV</label>
                     <input type="file" name="archivo_csv" class="form-control form-control-sm" accept=".csv" required>
@@ -245,6 +264,67 @@
     </div>
 </div>
 
+<div class="modal fade" id="modalAuditoria" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title fs-6"><i class="bi bi-journal-code me-1"></i> Bitácora de Auditoría Tributaria (JSONField)</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped mb-0 small">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>Fecha / Hora</th>
+                                <th>Usuario</th>
+                                <th>Acción</th>
+                                <th>Instrumento</th>
+                                <th>Origen</th>
+                                <th>Payload JSON</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for log in auditorias %}
+                            <tr>
+                                <td class="text-nowrap">{{ log.fecha_hora|date:"d/m/Y H:i:s" }}</td>
+                                <td class="fw-semibold">{{ log.usuario }}</td>
+                                <td><span class="badge bg-secondary">{{ log.accion }}</span></td>
+                                <td>{{ log.instrumento }}</td>
+                                <td>{{ log.origen }}</td>
+                                <td><code class="small">{{ log.detalles }}</code></td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="6" class="text-center py-3">Sin registros de auditoría aún.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    function abrirModalNuevo() {
+        document.getElementById('tituloModalIngreso').innerText = 'Nueva Calificación Tributaria (Ingreso y Cálculo)';
+        document.getElementById('input_calificacion_id').value = '';
+        document.getElementById('input_instrumento').value = '';
+        document.getElementById('input_descripcion').value = '';
+    }
+
+    function abrirModalEditar(id, ejercicio, mercado, instrumento, secuencia, fecha, sociedad, descripcion) {
+        document.getElementById('tituloModalIngreso').innerText = 'Rectificar Calificación: ' + instrumento;
+        document.getElementById('input_calificacion_id').value = id;
+        document.getElementById('input_ejercicio').value = ejercicio;
+        document.getElementById('input_mercado').value = mercado;
+        document.getElementById('input_instrumento').value = instrumento;
+        document.getElementById('input_secuencia').value = secuencia;
+        document.getElementById('input_fecha').value = fecha;
+        document.getElementById('input_sociedad').value = sociedad;
+        document.getElementById('input_descripcion').value = descripcion;
+    }
+</script>
 </body>
 </html>
