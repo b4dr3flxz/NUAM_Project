@@ -161,24 +161,52 @@ def carga_masiva_csv(request):
 
     if request.method == 'POST' and request.FILES.get('archivo_csv'):
         archivo = request.FILES['archivo_csv']
-        if not archivo.name.endswith('.csv'):
-            messages.error(request, "El archivo debe tener formato .CSV")
+        if not archivo.name.lower().endswith('.csv'):
+            messages.error(request, "Formato inválido: el archivo debe tener extensión .CSV")
             return redirect('mantenedor')
 
         try:
             datos = archivo.read().decode('utf-8')
             lineas = csv.DictReader(io.StringIO(datos))
+
+            columnas_requeridas = {'ejercicio', 'mercado', 'instrumento', 'fecha', 'secuencia'}
+            if not lineas.fieldnames or not columnas_requeridas.issubset(set(lineas.fieldnames)):
+                messages.error(
+                    request,
+                    "El archivo CSV no tiene el formato pedido. "
+                    "Debe incluir las columnas: ejercicio, mercado, instrumento, fecha, secuencia."
+                )
+                return redirect('mantenedor')
+
             registros_validos = []
+            duplicados = []
             num_fila = 1
 
             for fila in lineas:
                 num_fila += 1
+                ejercicio = int(fila['ejercicio'])
+                mercado = fila['mercado'].strip().upper()
+                instrumento = fila['instrumento'].strip().upper()
+                secuencia = int(fila['secuencia'])
+
+                existe = CalificacionTributaria.objects.filter(
+                    ejercicio=ejercicio,
+                    mercado=mercado,
+                    instrumento=instrumento,
+                    secuencia_evento=secuencia,
+                    origen='CSV'
+                ).exists()
+
+                if existe:
+                    duplicados.append(f"{instrumento} (Sec. {secuencia})")
+                    continue
+
                 factores_fila = {}
                 suma_principales = Decimal('0.00000000')
 
                 for i in range(8, 38):
                     col = f'factor_{i:02d}'
-                    if col in fila and fila[col].strip() != '':
+                    if col in fila and fila[col] and fila[col].strip() != '':
                         valor = Decimal(fila[col].strip())
                     else:
                         valor = Decimal('0.00000000')
@@ -188,41 +216,58 @@ def carga_masiva_csv(request):
                         suma_principales += valor
 
                 if suma_principales > Decimal('1.00000000'):
-                    raise ValueError(f"Error en fila {num_fila}: la suma de factores supera 1.00000000.")
+                    raise ValueError(f"Fila {num_fila} ({instrumento}): la suma de factores 8-19 supera 1.00000000.")
 
                 registros_validos.append((fila, factores_fila))
 
             for fila, factores_fila in registros_validos:
-                calif, _ = CalificacionTributaria.objects.update_or_create(
+                calif = CalificacionTributaria.objects.create(
                     ejercicio=int(fila['ejercicio']),
-                    mercado=fila['mercado'].strip(),
+                    mercado=fila['mercado'].strip().upper(),
                     instrumento=fila['instrumento'].strip().upper(),
                     secuencia_evento=int(fila['secuencia']),
                     origen='CSV',
-                    defaults={
-                        'fecha_pago': fila['fecha'],
-                        'numero_dividendo': int(fila.get('dividendo', 0)),
-                        'tipo_sociedad': fila.get('tipo_sociedad', 'A'),
-                        'descripcion': fila.get('descripcion', 'Carga Masiva CSV'),
-                        'valor_historico': Decimal(fila.get('valor_historico', '0')),
-                    }
+                    fecha_pago=fila['fecha'].strip(),
+                    numero_dividendo=int(fila.get('dividendo') or 0),
+                    tipo_sociedad=(fila.get('tipo_sociedad') or 'A').strip(),
+                    descripcion=(fila.get('descripcion') or 'Carga Masiva CSV').strip(),
+                    valor_historico=Decimal(fila.get('valor_historico') or '0'),
                 )
 
-                factor_obj, _ = FactorTributario.objects.get_or_create(calificacion=calif)
+                factor_obj = FactorTributario.objects.create(calificacion=calif)
                 for col, val in factores_fila.items():
                     setattr(factor_obj, col, val)
                 factor_obj.save()
 
-            AuditoriaLog.objects.create(
-                instrumento="CARGA_LOTE",
-                usuario=request.user.username,
-                accion='CARGA_MASIVA',
-                origen='CSV',
-                detalles={'total_registros': len(registros_validos), 'archivo': archivo.name}
-            )
+            if registros_validos:
+                AuditoriaLog.objects.create(
+                    instrumento="CARGA_LOTE",
+                    usuario=request.user.username,
+                    accion='CARGA_MASIVA',
+                    origen='CSV',
+                    detalles={
+                        'archivo': archivo.name,
+                        'guardados': len(registros_validos),
+                        'duplicados_omitidos': duplicados
+                    }
+                )
+                messages.success(
+                    request,
+                    f"Carga completada: se guardaron {len(registros_validos)} registros nuevos."
+                )
 
-            messages.success(request, f"Se procesaron {len(registros_validos)} calificaciones desde el archivo CSV.")
+            if duplicados:
+                messages.warning(
+                    request,
+                    f"Se omitieron {len(duplicados)} registros duplicados ya existentes: {', '.join(duplicados)}."
+                )
+
+            if not registros_validos and not duplicados:
+                messages.warning(request, "El archivo CSV no contiene filas para procesar.")
+
+        except ValueError as err:
+            messages.error(request, f"Error de validación en el archivo CSV: {err}")
         except Exception as e:
-            messages.error(request, f"Carga cancelada por error en el archivo: {e}")
+            messages.error(request, f"El archivo CSV no cumple con el formato válido ({e}).")
 
     return redirect('mantenedor')
