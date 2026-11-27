@@ -15,6 +15,8 @@ def puede_editar(user):
     es_analista = user.groups.filter(name='Analista Tributario').exists()
     return es_admin or es_analista
 
+def inicio(request):
+    return render(request, 'calificaciones/index.html')
 
 @login_required
 def mantenedor_calificaciones(request):
@@ -67,25 +69,34 @@ def guardar_calificacion(request):
                 return redirect('mantenedor')
 
             montos = {}
+            tiene_montos_nuevos = False
             for i in range(8, 38):
-                montos[f'monto_{i:02d}'] = request.POST.get(f'monto_{i:02d}', '0')
+                val_str = request.POST.get(f'monto_{i:02d}', '0') or '0'
+                montos[f'monto_{i:02d}'] = val_str
+                if Decimal(str(val_str)) > 0:
+                    tiene_montos_nuevos = True
 
-            factores = calcular_factores_desde_montos(montos)
             datos_anteriores = {}
 
             if calificacion_id:
                 calif = get_object_or_404(CalificacionTributaria, id=calificacion_id)
                 accion = 'MODIFICACION'
                 if hasattr(calif, 'factores'):
-                    datos_anteriores = {
-                        'factor_08': str(calif.factores.factor_08),
-                        'factor_09': str(calif.factores.factor_09),
-                        'factor_10': str(calif.factores.factor_10),
-                        'factor_11': str(calif.factores.factor_11),
-                    }
+                    for i in range(8, 38):
+                        col = f'factor_{i:02d}'
+                        val_actual = getattr(calif.factores, col)
+                        if val_actual > 0:
+                            datos_anteriores[col] = str(val_actual)
+
+                # Si edita cabecera sin ingresar montos nuevos, conserva sus factores actuales
+                if tiene_montos_nuevos or not hasattr(calif, 'factores'):
+                    factores = calcular_factores_desde_montos(montos)
+                else:
+                    factores = {f'factor_{i:02d}': getattr(calif.factores, f'factor_{i:02d}') for i in range(8, 38)}
             else:
                 calif = CalificacionTributaria()
                 accion = 'CREACION'
+                factores = calcular_factores_desde_montos(montos)
 
             calif.ejercicio = ejercicio
             calif.mercado = mercado
@@ -103,6 +114,8 @@ def guardar_calificacion(request):
                 setattr(factor_obj, k, v)
             factor_obj.save()
 
+            datos_nuevos = {k: str(v) for k, v in factores.items() if v > 0}
+
             AuditoriaLog.objects.create(
                 calificacion=calif,
                 instrumento=calif.instrumento,
@@ -112,26 +125,24 @@ def guardar_calificacion(request):
                 detalles={
                     'secuencia': secuencia_evento,
                     'anterior': datos_anteriores,
-                    'nuevo': {
-                        'factor_08': str(factores['factor_08']),
-                        'factor_09': str(factores['factor_09']),
-                        'factor_10': str(factores['factor_10']),
-                        'factor_11': str(factores['factor_11']),
-                    }
+                    'nuevo': datos_nuevos,
                 }
             )
 
             messages.success(request, f"Calificación de {instrumento} guardada correctamente.")
         except ValueError as err:
             messages.error(request, str(err))
-        except Exception as e:
-            messages.error(request, f"Error al procesar el registro: {e}")
+        except Exception:
+            messages.error(request, "No se pudo guardar el registro. Verifique que los datos ingresados sean válidos.")
 
     return redirect('mantenedor')
 
 
 @login_required
 def eliminar_calificacion(request, calificacion_id):
+    if request.method != 'POST':
+        return redirect('mantenedor')
+
     if not puede_editar(request.user):
         messages.error(request, "No tiene permisos para eliminar registros.")
         return redirect('mantenedor')

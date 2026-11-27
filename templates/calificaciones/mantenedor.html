@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -15,7 +15,9 @@
 <body class="bg-light">
 
 <nav class="navbar navbar-dark px-3 shadow-sm" style="background-color: #1a365d !important;">
-    <span class="navbar-brand mb-0 h1 fw-bold"><i class="bi bi-graph-up-arrow me-2"></i>NUAM Mercado Bursátil Integrado</span>
+    <a href="{% url 'inicio' %}" class="navbar-brand mb-0 h1 fw-bold text-decoration-none">
+        <i class="bi bi-graph-up-arrow me-2"></i>NUAM Mercado Bursátil Integrado
+    </a>
     <div class="d-flex align-items-center gap-3">
         <span class="text-light small"><i class="bi bi-person-circle me-1"></i>{{ request.user.username }}</span>
         <form method="POST" action="{% url 'logout' %}" class="m-0">
@@ -77,7 +79,7 @@
             <span class="fw-bold text-dark">Registros de Calificaciones</span>
             <div class="d-flex gap-2">
                 <button class="btn btn-outline-dark btn-sm" data-bs-toggle="modal" data-bs-target="#modalAuditoria">
-                    <i class="bi bi-clock-history me-1"></i> Auditoría JSON
+                    <i class="bi bi-clock-history me-1"></i> Historial de Cambios.
                 </button>
                 {% if es_editor %}
                 <button class="btn btn-success btn-sm" onclick="abrirModalNuevo()" data-bs-toggle="modal" data-bs-target="#modalIngreso">
@@ -135,9 +137,12 @@
                                     data-bs-toggle="modal" data-bs-target="#modalIngreso">
                                     <i class="bi bi-pencil"></i>
                                 </button>
-                                <a href="{% url 'eliminar_calificacion' c.id %}" class="btn btn-outline-danger btn-sm py-0 px-2" onclick="return confirm('¿Confirma eliminar este registro?');">
-                                    <i class="bi bi-trash"></i>
-                                </a>
+                                <form method="POST" action="{% url 'eliminar_calificacion' c.id %}" class="d-inline" onsubmit="return confirm('¿Confirma eliminar este registro?');">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </form>
                             </td>
                             {% endif %}
                         </tr>
